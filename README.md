@@ -56,7 +56,7 @@ This project is an image retrieval system based on multi-source information fusi
 ## Project Structure
 
 ```
-基于多源信息融合的以图搜图应用/
+
 ├── main.m                 # Main entry point
 ├── src/                  # Source code
 │   ├── features/         # Feature extraction module
