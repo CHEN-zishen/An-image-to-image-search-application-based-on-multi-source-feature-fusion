@@ -1,0 +1,500 @@
+function imageRetrievalGUI
+    % 创建主窗口
+    fig = figure('Name', '图像检索系统',...
+        'Position', [100 100 1400 800],...  % 扩大宽度以适应新增面板
+        'NumberTitle', 'off',...
+        'MenuBar', 'none',...
+        'ToolBar', 'none',...
+        'Color', [0.94 0.94 0.94]);
+    
+    % 创建面板
+    mainPanel = uipanel('Parent', fig,...
+        'Position', [0 0 1 1],...
+        'Units', 'normalized',...
+        'BackgroundColor', [0.94 0.94 0.94]);
+    
+    % 创建全局变量
+    handles = guihandles(fig);
+    handles.fig = fig;
+    handles.queryImage = [];
+    handles.datasetPath = fullfile(pwd, 'data');
+    handles.topK = 10;
+    handles.penThickness = 2; % 初始笔的粗细
+    handles.isEraser = false; % 初始不是橡皮擦模式
+    
+    % 创建控件面板
+    controlPanel = uipanel('Parent', mainPanel,...
+        'Position', [0.02 0.92 0.96 0.06],...
+        'Units', 'normalized',...
+        'BackgroundColor', [0.94 0.94 0.94],...
+        'BorderType', 'none');
+    
+    % 创建上传图片按钮
+    handles.uploadButton = uicontrol('Parent', controlPanel,...
+        'Style', 'pushbutton',...
+        'String', '上传图片',...
+        'Position', [20 10 100 60],...
+        'Callback', @uploadImage);
+    
+    % 创建开始检索按钮
+    handles.searchButton = uicontrol('Parent', controlPanel,...
+        'Style', 'pushbutton',...
+        'String', '开始检索',...
+        'Position', [140 10 100 60],...
+        'Callback', @startRetrieval,...
+        'Enable', 'off');
+    
+    % 创建查询图像显示面板
+    queryPanel = uipanel('Parent', mainPanel,...
+        'Title', '查询图像',...
+        'Position', [0.02 0.55 0.35 0.40],...
+        'Units', 'normalized');
+    
+    % 创建查询图像显示区域
+    handles.queryAxes = axes('Parent', queryPanel,...
+        'Position', [0.1 0.1 0.8 0.8],...
+        'Units', 'normalized');
+    axis(handles.queryAxes, 'off');
+    
+    % 创建绘画面板
+    drawingPanel = uipanel('Parent', mainPanel,...
+        'Title', '绘画板',...
+        'Position', [0.02 0.05 0.35 0.40],...
+        'Units', 'normalized');
+    
+    % 创建绘画显示区域
+    handles.drawingAxes = axes('Parent', drawingPanel,...
+        'Position', [0.1 0.2 0.8 0.75],...
+        'Units', 'normalized',...
+        'Color', 'white',...
+        'XTick', [], 'YTick', []);
+    axis(handles.drawingAxes, [0 1 0 1]);
+    hold(handles.drawingAxes, 'on');
+    
+    % 初始化绘图变量
+    handles.isDrawing = false;
+    handles.lastPoint = [];
+    
+    % 设置绘图回调
+    set(handles.drawingAxes, 'ButtonDownFcn', @startDrawing);
+    
+    % 设置窗口级别的鼠标移动和释放回调
+    set(fig, 'WindowButtonMotionFcn', @drawingMotion);  % 窗口级别设置
+    set(fig, 'WindowButtonUpFcn', @stopDrawing);  % 窗口级别设置
+    
+    % 创建绘画控件面板
+    drawingControlPanel = uipanel('Parent', mainPanel,...
+        'Position', [0.02 0.47 0.35 0.06],...
+        'Units', 'normalized',...
+        'BackgroundColor', [0.94 0.94 0.94],...
+        'BorderType', 'none');
+    
+    % 创建清空画板按钮
+    handles.clearButton = uicontrol('Parent', drawingControlPanel,...
+        'Style', 'pushbutton',...
+        'String', '清空画板',...
+        'Position', [10 5 100 30],...
+        'Callback', @clearDrawing);
+    
+    % 创建使用绘画检索按钮
+    handles.useDrawingButton = uicontrol('Parent', drawingControlPanel,...
+        'Style', 'pushbutton',...
+        'String', '使用绘画检索',...
+        'Position', [130 5 120 30],...
+        'Callback', @useDrawingForRetrieval,...  % 确保回调正确设置
+        'Enable', 'off');  % 初始时禁用，直到有绘图
+    
+    % 创建笔粗细调节滑块
+    handles.penThicknessSlider = uicontrol('Parent', drawingControlPanel,...
+        'Style', 'slider',...
+        'String', '笔粗细',...
+        'Position', [260 5 100 30],...
+        'Min', 1,...
+        'Max', 10,...
+        'Value', 2,...
+        'Callback', @adjustPenThickness);
+    
+    % 创建橡皮擦按钮
+    handles.eraserButton = uicontrol('Parent', drawingControlPanel,...
+        'Style', 'togglebutton',...
+        'String', '橡皮擦',...
+        'Position', [380 5 100 30],...
+        'Callback', @toggleEraser);
+    
+    % 创建结果显示面板
+    resultPanel = uipanel('Parent', mainPanel,...
+        'Title', '检索结果',...
+        'Position', [0.4 0.05 0.58 0.85],...
+        'Units', 'normalized');
+    
+    % 创建网格布局显示检索结果
+    handles.resultAxes = gobjects(1, handles.topK);
+    for i = 1:handles.topK
+        row = ceil(i/5);
+        col = mod(i-1,5)+1;
+        
+        % 创建每个结果的子面板
+        subPanel = uipanel('Parent', resultPanel,...
+            'Position', [0.02+(col-1)*0.19 0.68-(row-1)*0.32 0.17 0.3],...
+            'Units', 'normalized');
+        
+        % 创建图像显示区域
+        handles.resultAxes(i) = axes('Parent', subPanel,...
+            'Position', [0.1 0.1 0.8 0.8],...
+            'Units', 'normalized');
+        axis(handles.resultAxes(i), 'off');
+    end
+    
+    % 保存handles
+    guidata(fig, handles);
+    
+    % 设置窗口可见
+    set(fig, 'Visible', 'on');
+end
+
+%% 修改后的 "使用绘画检索" 回调函数
+function useDrawingForRetrieval(hObject, eventdata)
+    try
+        % 获取最新的handles数据
+        handles = guidata(hObject);
+        
+        % 获取绘图区域的图像
+        frame = getframe(handles.drawingAxes);  % 获取绘图区域的图像
+        drawnImage = frame.cdata;  % 从frame中提取图像数据
+        
+        % 检查是否为RGB图像，如果是，则转换为灰度图像
+        if size(drawnImage, 3) == 3
+            drawnImage = rgb2gray(drawnImage);  % 转换为灰度图像
+        end
+        
+        % 将图像转换为二值图像
+        drawnImage = imbinarize(drawnImage);  % 转为二值图
+        
+        % 去除图像的空白部分，裁剪掉
+        stats = regionprops(drawnImage, 'BoundingBox');  
+        if ~isempty(stats)
+            boundingBox = stats(1).BoundingBox;
+            drawnImage = imcrop(drawnImage, boundingBox);  % 裁剪图像
+        end
+        
+        % 填充图像的空洞
+        drawnImage = imfill(drawnImage, 'holes');
+        
+        % 将图像大小调整为 256x256，并将其转换为 double 格式
+        drawnImage = imresize(drawnImage, [256 256]);
+        drawnImage = double(drawnImage);
+        
+        % 将绘制的图像作为查询图像
+        handles.queryImage = drawnImage;
+        
+        % 显示绘制的查询图像
+        axes(handles.queryAxes);
+        imshow(handles.queryImage);
+        title('查询图像（绘画）');
+        
+        % 启用“开始检索”按钮
+        set(handles.searchButton, 'Enable', 'on');
+        
+        % 禁用“使用绘画检索”按钮，防止重复使用
+        set(handles.useDrawingButton, 'Enable', 'off');
+        
+        % 更新handles
+        guidata(hObject, handles);
+        
+    catch ME
+        errordlg(['使用绘画检索时出错: ' ME.message], '错误');
+    end
+end
+
+%% 上传图片回调函数
+function uploadImage(hObject, eventdata)
+    try
+        % 获取最新的handles数据
+        handles = guidata(hObject);
+        
+        % 打开文件选择对话框
+        [filename, pathname] = uigetfile(...
+            {'*.bmp;*.jpg;*.png', '图像文件 (*.bmp,*.jpg,*.png)';...
+            '*.*', '所有文件 (*.*)'},...
+            '选择查询图像');
+        
+        if isequal(filename, 0) || isequal(pathname, 0)
+            return;  % 用户取消选择
+        end
+        
+        % 加载并显示图像
+        fullpath = fullfile(pathname, filename);
+        handles.queryImage = imread(fullpath);
+        
+        % 显示图像
+        axes(handles.queryAxes);
+        imshow(handles.queryImage);
+        title('查询图像');
+        
+        % 启用检索按钮
+        set(handles.searchButton, 'Enable', 'on');
+        
+        % 如果存在绘画，禁用使用绘画检索按钮
+        set(handles.useDrawingButton, 'Enable', 'off');
+        
+        % 更新handles
+        guidata(hObject, handles);
+        
+    catch ME
+        errordlg(['错误: ' ME.message], '上传失败');
+    end
+end
+
+%% 开始检索回调函数
+function startRetrieval(hObject, eventdata)
+    try
+        % 获取最新的handles数据
+        handles = guidata(hObject);
+        
+        if isempty(handles.queryImage)
+            msgbox('请先上传查询图像或使用绘画进行检索！', '提示', 'warn');
+            return;
+        end
+        
+        % 检查图像有效性
+        if sum(handles.queryImage(:)) == 0
+            errordlg('无效的查询图像！', '错误');
+            return;
+        end
+        
+        % 显示等待条（只创建一次）
+        h = waitbar(0, '正在处理查询图像...', 'Name', '请稍候');
+        
+        try
+            % 1. 预处理查询图像
+            queryProcessed = preprocessImage(handles.queryImage);
+            waitbar(0.1, h, '正在提取特征...');
+            
+            % 2. 提取查询图像特征
+            [queryFeatures, featureInfo] = extractFeatures(queryProcessed);
+            waitbar(0.2, h, '正在处理数据集...');
+            
+            % 3. 加载数据集并提取特征
+            datasetFiles = dir(fullfile(handles.datasetPath, '*.bmp'));
+            if isempty(datasetFiles)
+                error('数据集文件夹为空或未找到.bmp文件');
+            end
+            
+            % 初始化特征矩阵
+            datasetFeatures = zeros(length(datasetFiles), featureInfo.totalDimension);
+            
+            % 处理数据集图像（使用同一个进度条）
+            for i = 1:length(datasetFiles)
+                try
+                    % 读取和处理图像
+                    img = imread(fullfile(handles.datasetPath, datasetFiles(i).name));
+                    processed = preprocessImage(img);
+                    
+                    % 提取新的特征
+                    [features, ~] = extractFeatures(processed);
+                    
+                    % 存储特征
+                    datasetFeatures(i,:) = features;
+                    
+                    % 更新进度条（使用0.2到0.8的范围）
+                    progress = 0.2 + (0.6 * i / length(datasetFiles));
+                    waitbar(progress, h, sprintf('正在处理数据集... (%d/%d)', i, length(datasetFiles)));
+                    
+                catch e
+                    warning('处理图像 %s 时出错: %s', datasetFiles(i).name, e.message);
+                    datasetFeatures(i,:) = zeros(1, featureInfo.totalDimension);
+                end
+            end
+            
+            % 4. 执行匹配
+            waitbar(0.9, h, '正在匹配图像...');
+            [sortedIndices, similarities] = matchImages(queryFeatures, datasetFeatures);
+            
+            % 5. 显示结果
+            waitbar(1, h, '正在显示结果...');
+            
+            % 在显示结果之前添加检查
+            if isempty(similarities)
+                warndlg('未找到任何相似的图像！', '警告');
+            else
+                % 5. 显示结果
+                for i = 1:handles.topK
+                    if i <= length(sortedIndices)
+                        img = imread(fullfile(handles.datasetPath, datasetFiles(sortedIndices(i)).name));
+                        axes(handles.resultAxes(i));
+                        imshow(img);
+                        % 将相似度转换为百分比并显示
+                        similarityPercent = similarities(i) * 100;
+                        title(sprintf('相似度: %.1f%%', similarityPercent), 'FontSize', 9);
+                    else
+                        % 清空多余的轴
+                        axes(handles.resultAxes(i));
+                        cla;
+                        title('无更多结果', 'FontSize', 9);
+                    end
+                end
+            end
+            
+        catch ME
+            if exist('h', 'var') && ishandle(h)
+                close(h);
+            end
+            rethrow(ME);
+        end
+        
+        % 关闭进度条
+        if exist('h', 'var') && ishandle(h)
+            close(h);
+        end
+        
+    catch ME
+        errordlg(['检索错误: ' ME.message], '检索失败');
+    end
+end
+
+%% 清空画板回调函数
+function clearDrawing(hObject, eventdata)
+    % 获取最新的handles数据
+    handles = guidata(hObject);
+    
+    % 清空绘图区域
+    cla(handles.drawingAxes);
+    axis(handles.drawingAxes, [0 1 0 1]);
+    hold(handles.drawingAxes, 'on');
+    
+    % 禁用使用绘画检索按钮
+    set(handles.useDrawingButton, 'Enable', 'off');
+    
+    % 更新handles
+    guidata(hObject, handles);
+end
+
+%% 开始绘图回调函数
+function startDrawing(hObject, eventdata)
+    % 获取最新的handles数据
+    handles = guidata(hObject);
+    
+    % 设置绘图状态
+    handles.isDrawing = true;
+    
+    % 获取当前鼠标位置
+    cp = get(handles.drawingAxes, 'CurrentPoint');
+    handles.lastPoint = cp(1,1:2);
+    
+    % 更新handles
+    guidata(hObject, handles);
+end
+
+%% 绘图移动回调函数
+function drawingMotion(hObject, eventdata)
+    % 获取最新的handles数据
+    handles = guidata(hObject);
+    
+    if handles.isDrawing
+        % 获取当前鼠标位置
+        cp = get(handles.drawingAxes, 'CurrentPoint');
+        currentPoint = cp(1,1:2);
+        
+        % 绘制线段或擦除线段
+        if handles.isEraser
+            % 擦除功能
+            plot(handles.drawingAxes, [handles.lastPoint(1) currentPoint(1)],...
+                [handles.lastPoint(2) currentPoint(2)], 'w-', 'LineWidth', handles.penThickness);
+        else
+            % 绘制功能
+            plot(handles.drawingAxes, [handles.lastPoint(1) currentPoint(1)],...
+                [handles.lastPoint(2) currentPoint(2)], 'k-', 'LineWidth', handles.penThickness);
+        end
+        
+        % 更新最后一点
+        handles.lastPoint = currentPoint;
+        
+        % 启用使用绘画检索按钮
+        set(handles.useDrawingButton, 'Enable', 'on');
+        
+        % 更新handles
+        guidata(hObject, handles);
+    end
+end
+
+%% 停止绘图回调函数
+function stopDrawing(hObject, eventdata)
+    % 获取最新的handles数据
+    handles = guidata(hObject);
+    
+    % 结束绘图状态
+    handles.isDrawing = false;
+    handles.lastPoint = [];
+    
+    % 更新handles
+    guidata(hObject, handles);
+end
+
+%% 调整笔粗细的回调函数
+function adjustPenThickness(hObject, eventdata)
+    % 获取最新的handles数据
+    handles = guidata(hObject);
+    % 获取滑块的值
+    handles.penThickness = get(hObject, 'Value');
+    % 更新handles
+    guidata(hObject, handles);
+end
+
+%% 切换橡皮擦模式的回调函数
+function toggleEraser(hObject, eventdata)
+    % 获取最新的handles数据
+    handles = guidata(hObject);
+    % 切换橡皮擦模式
+    handles.isEraser = get(hObject, 'Value') == 1;
+    % 更新handles
+    guidata(hObject, handles);
+end
+
+
+%% 预处理图像函数
+function processed = preprocessImage(img)
+    % Convert to grayscale if it's a color image
+    if size(img, 3) == 3
+        processed = rgb2gray(img);
+    else
+        processed = img;
+    end
+    
+    % Resize the image to a standard size (e.g., 256x256)
+    processed = imresize(processed, [256 256]);
+    
+    % Normalize the image
+    processed = double(processed) / 255;
+end
+
+%% 提取特征函数
+function [features, featureInfo] = extractFeatures(img)
+    % Extract HOG features
+    [hogFeatures, ~] = extractHOGFeatures(img, 'CellSize', [16 16]);
+    
+    features = hogFeatures;
+    
+    featureInfo.totalDimension = length(features);
+end
+
+%% 匹配图像函数
+function [sortedIndices, similarities] = matchImages(queryFeatures, datasetFeatures)
+    % Normalize the features
+    queryNorm = norm(queryFeatures);
+    datasetNorms = sqrt(sum(datasetFeatures.^2, 2));
+    
+    % 避免除以零
+    datasetNorms(datasetNorms == 0) = eps;
+    if queryNorm == 0
+        queryNorm = eps;
+    end
+    
+    % 计算余弦相似度
+    similarities = (datasetFeatures * queryFeatures')./ (datasetNorms * queryNorm);
+    
+    % 处理除零产生的NaN值
+    similarities(isnan(similarities)) = 0;
+    
+    % 按相似度降序排序
+    [~, sortedIndices] = sort(similarities, 'descend');
+end
